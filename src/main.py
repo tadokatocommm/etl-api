@@ -5,21 +5,20 @@ from datetime import datetime
 from dotenv import load_dotenv
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
-
-# Integração com Logfire
+from flask import Flask
+from threading import Thread
+from database import Base, CasosCovid
 import logging
 import logfire
 from logging import basicConfig, getLogger
-# Configura o Logfire e adiciona o handler
+
 logfire.configure()
 basicConfig(handlers=[logfire.LogfireLoggingHandler()])
 logger = getLogger(__name__)
 logger.setLevel(logging.INFO)
 
-from database import Base, CasosCovid
 
 load_dotenv()
-
 POSTGRES_USER = os.getenv("POSTGRES_USER")
 POSTGRES_PASSWORD = os.getenv("POSTGRES_PASSWORD")
 POSTGRES_HOST = os.getenv("POSTGRES_HOST")
@@ -33,6 +32,12 @@ DATABASE_URL = (
 
 engine = create_engine(DATABASE_URL)
 Session = sessionmaker(bind=engine)
+
+app = Flask(__name__)
+
+@app.route('/')
+def home():
+    return "Aplicação rodando na porta correta!"
 
 def criar_tabela():
     Base.metadata.create_all(engine)
@@ -110,3 +115,5 @@ if __name__ == "__main__":
         except Exception as e:
             logger.error(f"Erro durante a execução: {e}")
             time.sleep(60)
+
+    app.run(host='0.0.0.0', port=int(os.environ.get("PORT", 5000)))
