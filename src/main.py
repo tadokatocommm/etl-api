@@ -6,6 +6,16 @@ from dotenv import load_dotenv
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
+# Integração com Logfire
+import logging
+import logfire
+from logging import basicConfig, getLogger
+# Configura o Logfire e adiciona o handler
+logfire.configure()
+basicConfig(handlers=[logfire.LogfireLoggingHandler()])
+logger = getLogger(__name__)
+logger.setLevel(logging.INFO)
+
 from database import Base, CasosCovid
 
 load_dotenv()
@@ -26,7 +36,7 @@ Session = sessionmaker(bind=engine)
 
 def criar_tabela():
     Base.metadata.create_all(engine)
-    print("Tabela criada/verificada com sucesso!")
+    logger.info("Tabela criada/verificada com sucesso!")
 
 
 def extrair_dados():
@@ -35,7 +45,7 @@ def extrair_dados():
     if response.status_code == 200:
         return response.json()
     else:
-        print(f"Erro na API: {response.status_code}")
+        logger.error(f"Erro na API: {response.status_code}")
         return None
 
 
@@ -61,29 +71,42 @@ def transformar_dados(dados_json):
     return dados_tratados
 
 def salvar_dados_postgres(dados_tratados):
-    session = Session()   
-    for dados in dados_tratados:
-        novo_registro = CasosCovid(**dados)  
-        session.add(novo_registro)   
-    session.commit()  
-    session.close()
-    print(f"[{dados_tratados[0]['timestamp']}] Dados salvos no PostgreSQL!")
+    session = Session() 
+    try:
+        novos_registros = 0 
 
+        for dados in dados_tratados:
+            novo_registro = CasosCovid(**dados)  
+            session.add(novo_registro)  
+            novos_registros += 1
+        session.commit()  
+        
+        if novos_registros > 0:
+            logger.info(f"[{dados_tratados[0]['timestamp']}] {novos_registros} registros salvos no PostgreSQL!")
+        else:
+            logger.info("Nenhum dado novo para salvar no PostgreSQL.")
+
+    except Exception as ex:
+        logger.error(f"Erro ao inserir dados no PostgreSQL: {ex}")
+        session.rollback()  
+    finally:
+        session.close() 
 
 if __name__ == "__main__":
     criar_tabela()
-    print("Iniciando ETL com atualização a cada 15 segundos... (CTRL+C para interromper)")
+    logger.info("Iniciando ETL com atualização a cada 15 segundos... (CTRL+C para interromper)")
+
     while True:
         try:
             dados_json = extrair_dados()
             if dados_json:
                 dados_tratados = transformar_dados(dados_json)
-                print("Dados Tratados:", dados_tratados)
+                logger.info(f"Dados Tratados: {dados_tratados}")  
                 salvar_dados_postgres(dados_tratados)
             time.sleep(60)
         except KeyboardInterrupt:
-            print("\nProcesso interrompido pelo usuário. Finalizando...")
+            logger.info("\nProcesso interrompido pelo usuário. Finalizando...")
             break
         except Exception as e:
-            print(f"Erro durante a execução: {e}")
+            logger.error(f"Erro durante a execução: {e}")
             time.sleep(60)
